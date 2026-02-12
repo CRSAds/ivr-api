@@ -1,44 +1,38 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Initialiseer Supabase
 const supabase = createClient(
   process.env.SUPABASE_URL, 
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
 export default async function handler(req, res) {
-  // Alleen POST verzoeken toestaan
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method Not Allowed' });
-  }
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
 
   const { caller_id, pin_code } = req.body;
 
-  // 1. Check of er überhaupt een code is meegestuurd
   if (!pin_code) {
     return res.status(400).json({ error: "No pin provided" });
   }
 
   try {
-    // 2. Zoek de code in de database
-    // We checken op de code én of is_active op true staat
+    // AANGEPASTE LOGICA:
+    // We gebruiken .limit(1) in plaats van .single()
+    // Dit zorgt ervoor dat als code '123' er 10x in staat, hij niet crasht,
+    // maar gewoon "Ja, gevonden" zegt.
     const { data, error } = await supabase
       .from('game_codes')
-      .select('id, code')
+      .select('id')
       .eq('code', String(pin_code))
       .eq('is_active', true)
-      .single();
+      .limit(1);
 
-    if (error || !data) {
+    // Als data leeg is (lengte 0), dan bestaat de code niet.
+    if (error || !data || data.length === 0) {
       console.warn(`❌ Login mislukt: ${caller_id} met pin ${pin_code}`);
-      
-      // HTTP 403 Forbidden = Code ongeldig -> IVR verbreekt verbinding
       return res.status(403).json({ valid: false });
     }
 
     console.log(`✅ Login succes: ${caller_id} met pin ${pin_code}`);
-    
-    // HTTP 200 OK = Code geldig -> IVR start het spel
     return res.status(200).json({ valid: true });
 
   } catch (e) {
